@@ -98,6 +98,36 @@ mac_channel_printed = set()
 # =========================================
 
 
+# ---------- VM DETECTION ----------
+
+def is_virtual_machine():
+    try:
+        with open("/sys/class/dmi/id/product_name", "r") as f:
+            product = f.read().lower()
+
+        vm_indicators = ["virtualbox", "vmware", "kvm", "qemu", "hyper-v", "xen"]
+        return any(v in product for v in vm_indicators)
+    except Exception:
+        return False
+
+
+def show_vm_advisory():
+    print(f"""{YELLOW}{BOLD}
+┌─ Environment Notice ──────────────────────────────────────────┐
+│ Virtual machine detected                                     │
+│                                                             │
+│ Some USB Wi-Fi adapters — particularly dual-band chipsets   │
+│ (e.g. MT7612U, RTL8812AU) — may behave unreliably in         │
+│ monitor mode under virtualization.                          │
+│                                                             │
+│ For VM testing, 2.4 GHz-only adapters (e.g. RTL8187L) are   │
+│ strongly recommended.                                       │
+│                                                             │
+│ This is a virtualization limitation, not a WASP issue.     │
+└─────────────────────────────────────────────────────────────┘
+{RESET}""")
+
+
 # ---------- DIAGNOSTICS ----------
 
 def auto_diagnostics():
@@ -183,20 +213,33 @@ def select_mode():
         print("1) Monitor all networks")
         print("2) Monitor a specific BSSID")
         print("3) Monitor a specific SSID")
-        c = input("> ").strip()
+        print("h) Help")
+        print("q) Quit")
+        c = input("> ").strip().lower()
+
+        if c == "h":
+            show_help()
+            continue
+
+        if c == "q":
+            clean_exit()
 
         if c == "1":
             MODE = "ALL"
             TARGET_BSSID = TARGET_SSID = None
             break
+
         if c == "2":
             MODE = "BSSID"
             TARGET_BSSID = input("Enter BSSID: ").lower()
             break
+
         if c == "3":
             MODE = "SSID"
             TARGET_SSID = input("Enter SSID: ")
             break
+
+        print(f"{YELLOW}[!] Invalid selection{RESET}")
 
     print("-" * 70)
     print(f"{GREEN}[*] Monitoring active:{RESET}")
@@ -316,7 +359,6 @@ def handle_packet(pkt):
     src = d.addr2
     bssid = d.addr3
 
-    # Awareness — SSID ↔ BSSID
     if SHOW_AWARENESS and d.subtype == BEACON and bssid:
         ssid = extract_ssid(pkt)
         if ssid:
@@ -326,14 +368,12 @@ def handle_packet(pkt):
                 ssid_awareness_printed.add(ssid)
                 print(f"{YELLOW}{BOLD}[?] Multiple BSSIDs advertising SSID \"{ssid}\"{RESET}")
 
-    # Awareness — MAC roles
     if SHOW_AWARENESS and src and d.subtype in (PROBE, AUTH):
         mac_roles[src].add("CLIENT")
         if len(mac_roles[src]) >= 2 and src not in mac_role_printed:
             mac_role_printed.add(src)
             print(f"{YELLOW}{BOLD}[?] MAC acting as AP and CLIENT: {src}{RESET}")
 
-    # Awareness — MAC channels
     ch = extract_channel(pkt)
     if SHOW_AWARENESS and src and ch:
         mac_channels[src].add(ch)
@@ -341,7 +381,6 @@ def handle_packet(pkt):
             mac_channel_printed.add(src)
             print(f"{YELLOW}{BOLD}[?] MAC observed on multiple channels: {src}{RESET}")
 
-    # Mode filtering
     if MODE == "BSSID" and bssid and bssid.lower() != TARGET_BSSID:
         return
     if MODE == "SSID":
@@ -349,7 +388,6 @@ def handle_packet(pkt):
         if ssid != TARGET_SSID:
             return
 
-    # Detections
     if d.subtype in (DEAUTH, DISASSOC) and src and bssid:
         src_tracker[src].append(now)
         bssid_tracker[bssid].append(now)
@@ -416,9 +454,12 @@ print(f"""{BOLD}{CYAN}
  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚═╝
 {RESET}""")
 
-print(f"{BOLD}{CYAN}WASP — Wireless Auditing & Security Platform{RESET}")
+print(f"{BOLD}{CYAN}WASP v1.1 — Wireless Auditing & Security Platform{RESET}")
 print(f"{CYAN}Passive Wi-Fi Intrusion Detection (WIDS){RESET}")
 print("-" * 70)
+
+if is_virtual_machine():
+    show_vm_advisory()
 
 auto_diagnostics()
 BASE_INTERFACE = select_interface()
