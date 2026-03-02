@@ -1,18 +1,13 @@
-# WASP — Wireless Auditing & Security Platform
+WASP — Wireless Auditing & Security Platform
 Passive Wi-Fi Intrusion Detection System (WIDS)
 
 Overview
---------
-WASP is a passive Wi-Fi intrusion detection and awareness tool designed to monitor
-IEEE 802.11 management traffic and identify suspicious or abusive behaviour on
-wireless networks.
+WASP is a passive Wi-Fi intrusion detection and awareness tool designed to monitor IEEE 802.11 management traffic and identify suspicious or abusive behaviour on wireless networks.
 
-WASP does not inject traffic, does not interfere with networks, and does not
-attempt mitigation. It is intended for defensive monitoring, learning, and
-authorised security auditing.
+WASP does not inject traffic, does not interfere with networks, and does not attempt mitigation. It is intended for defensive monitoring, learning, and authorised security auditing.
 
 What WASP Is (and Is Not)
-------------------------
+
 WASP is:
 - A passive WIDS
 - A monitoring and awareness tool
@@ -26,7 +21,7 @@ WASP is not:
 - A replacement for enterprise IDS/IPS platforms
 
 Features
---------
+
 Detection (Alerts):
 - Deauthentication / Disassociation floods (SRC and BSSID)
 - Probe request floods
@@ -40,7 +35,6 @@ Awareness (Non-Alerting):
 - MAC addresses observed on multiple channels
 
 Requirements
-------------
 - Linux
 - Python 3
 - Scapy
@@ -48,62 +42,68 @@ Requirements
 - Wireless adapter with monitor mode support
 
 Installation
-------------
+
 sudo apt install python3-scapy iw
 sudo python3 WASP.py
 
 Usage
------
+
 Startup flow:
-1. Pre-flight diagnostics
-2. Interface selection
-3. Monitor mode enablement
-4. Mode selection (ALL / BSSID / SSID)
-5. Monitoring begins
+- Pre-flight diagnostics
+- Interface selection
+- Monitor mode enablement
+- Mode selection (ALL / BSSID / SSID)
+- Monitoring begins
 
 Runtime controls:
-s - status
-m - change mode
-h - help
-q - quit cleanly
+- s → status
+- m → change mode
+- h → help
+- q → quit cleanly
 
 Configuration (wasp.conf)
--------------------------
-Optional configuration file for tuning thresholds and UI behaviour.
+
+Optional configuration file for tuning thresholds and UI behaviour.  
 If missing, defaults are used silently.
 
-Location:
+Locations:
 - ./wasp.conf
 - /etc/wasp.conf
 
-Important:
-Monitoring mode selection is always interactive and not configurable.
+Important: Monitoring mode selection is always interactive and not configurable.
 
 Virtual Machines & Hardware
----------------------------
-Wi-Fi monitor mode inside virtual machines is often unreliable.
-Bare-metal or dual-boot Linux installations are recommended.
+
+WASP can run inside virtual machines; however, Wi-Fi monitor mode under virtualization is often unreliable due to hardware passthrough and USB timing limitations.
+
+In particular, some USB Wi-Fi adapters — especially dual-band chipsets such as MT7612U and RTL8812AU — may behave unpredictably when used in monitor mode inside a VM. This can include dropped frames, unstable channel hopping, or inconsistent capture behaviour.
+
+For virtual machine testing, 2.4 GHz-only adapters (e.g. RTL8187L-based devices) are strongly recommended, as they are significantly more stable under virtualization.
+
+WASP v1.1 and later will detect when it is running inside a virtual machine and display a non-fatal advisory notice at startup. This notice is informational only and does not prevent execution.
+
+These limitations are inherent to virtualization and hardware passthrough, not a defect in WASP itself. For best results — especially when working with dual-band adapters — bare-metal or dual-boot Linux installations are recommended.
 
 Legal & Ethical Use
--------------------
-Use only on wireless networks you own or are explicitly authorised to test.
+
+Use only on wireless networks you own or are explicitly authorised to test.  
 You are solely responsible for lawful and ethical operation.
 
 Disclaimer
-----------
-This software is provided "as is", without warranty of any kind.
-The author assumes no responsibility for misuse, damage, or legal
-consequences resulting from the use of this tool.
+
+This software is provided "as is", without warranty of any kind.  
+The author assumes no responsibility for misuse, damage, or legal consequences resulting from the use of this tool.
 
 License
--------
+
 MIT License. See the LICENSE file for details.
 
 Author
-------
+
 Ranga (RangaSec73)
 
 Project Status
---------------
-Version 1.0 — stable
-Feature-complete passive WIDS.
+
+Version 1.1 — stable.  
+Added virtual machine detection and advisory notice.  
+Improved startup input handling (help and quit available globally).
