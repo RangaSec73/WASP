@@ -1,109 +1,220 @@
-WASP — Wireless Auditing & Security Platform
+# WASP
+
+**Wireless Auditing & Security Platform**
+
 Passive Wi-Fi Intrusion Detection System (WIDS)
 
-Overview
+![Python](https://img.shields.io/badge/python-3.x-blue)
+![Platform](https://img.shields.io/badge/platform-linux-lightgrey)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+---
+
+## Overview
+
 WASP is a passive Wi-Fi intrusion detection and awareness tool designed to monitor IEEE 802.11 management traffic and identify suspicious or abusive behaviour on wireless networks.
 
-WASP does not inject traffic, does not interfere with networks, and does not attempt mitigation. It is intended for defensive monitoring, learning, and authorised security auditing.
+WASP operates entirely in **read-only passive mode**. It does not inject traffic, does not interfere with wireless networks, and does not attempt mitigation.
 
-What WASP Is (and Is Not)
+The tool is designed for defensive monitoring, learning, and authorised wireless security auditing.
 
-WASP is:
-- A passive WIDS
-- A monitoring and awareness tool
-- Designed for learning, auditing, and defensive analysis
-- Safe to run on live networks (read-only)
+---
 
-WASP is not:
-- An attack tool
-- A packet injection framework
-- A mitigation or blocking system
-- A replacement for enterprise IDS/IPS platforms
+## Topics
 
-Features
+wifi-security • wireless-ids • wids • network-security • cybersecurity • python-security-tool
 
-Detection (Alerts):
-- Deauthentication / Disassociation floods (SRC and BSSID)
-- Probe request floods
-- Authentication floods
-- Hidden SSID beacon anomalies
-- Channel hopping anomalies
+## What WASP Is (and Is Not)
 
-Awareness (Non-Alerting):
-- Multiple BSSIDs advertising the same SSID
-- MAC addresses acting as both AP and client
-- MAC addresses observed on multiple channels
+### WASP is:
 
-Requirements
-- Linux
-- Python 3
-- Scapy
-- Root privileges (sudo)
-- Wireless adapter with monitor mode support
+* A passive WIDS (Wireless Intrusion Detection System)
+* A monitoring and awareness tool
+* Designed for learning, auditing, and defensive analysis
+* Safe to run on live networks (read-only monitoring)
 
-Installation
+### WASP is not:
 
-sudo apt install python3-scapy iw
-sudo python3 WASP.py
+* An attack tool
+* A packet injection framework
+* A mitigation or blocking system
+* A replacement for enterprise IDS/IPS platforms
 
-Usage
+---
 
-Startup flow:
-- Pre-flight diagnostics
-- Interface selection
-- Monitor mode enablement
-- Mode selection (ALL / BSSID / SSID)
-- Monitoring begins
+## Features
+
+### Detection (Alerts)
+
+WASP detects common wireless abuse patterns using sliding-window thresholds:
+
+* Deauthentication / Disassociation floods (SRC and BSSID)
+* Probe request floods
+* Authentication floods
+* Hidden SSID beacon anomalies
+* Channel hopping anomalies
+
+---
+
+## Operator Console
+
+Version **1.2** introduces an interactive monitoring console.
 
 Runtime controls:
-- s → status
-- m → change mode
-- h → help
-- q → quit cleanly
 
-Configuration (wasp.conf)
+**s → Status panel**
+Displays current runtime statistics and alert counters.
 
-Optional configuration file for tuning thresholds and UI behaviour.  
-If missing, defaults are used silently.
+**t → Top RF devices**
+Shows the most active transmitting MAC addresses observed on the air.
 
-Locations:
-- ./wasp.conf
-- /etc/wasp.conf
+**l → Last alerts**
+Displays the most recent IDS alerts generated during the session.
 
-Important: Monitoring mode selection is always interactive and not configurable.
+**m → Change monitoring mode**
+Allows switching between ALL / BSSID / SSID monitoring modes.
 
-Virtual Machines & Hardware
+**q → Quit cleanly**
+Stops monitoring and displays a session summary.
 
-WASP can run inside virtual machines; however, Wi-Fi monitor mode under virtualization is often unreliable due to hardware passthrough and USB timing limitations.
+---
 
-In particular, some USB Wi-Fi adapters — especially dual-band chipsets such as MT7612U and RTL8812AU — may behave unpredictably when used in monitor mode inside a VM. This can include dropped frames, unstable channel hopping, or inconsistent capture behaviour.
+## Session Reporting
 
-For virtual machine testing, 2.4 GHz-only adapters (e.g. RTL8187L-based devices) are strongly recommended, as they are significantly more stable under virtualization.
+When WASP exits cleanly it displays a session summary including:
 
-WASP v1.1 and later will detect when it is running inside a virtual machine and display a non-fatal advisory notice at startup. This notice is informational only and does not prevent execution.
+* Runtime duration
+* Interface used
+* Monitoring mode
+* Alert counters
 
-These limitations are inherent to virtualization and hardware passthrough, not a defect in WASP itself. For best results — especially when working with dual-band adapters — bare-metal or dual-boot Linux installations are recommended.
+This provides a quick overview of observed wireless activity.
 
-Legal & Ethical Use
+---
 
-Use only on wireless networks you own or are explicitly authorised to test.  
+## Awareness (Non-Alerting Observations)
+
+WASP also tracks certain wireless behaviours for situational awareness:
+
+* Multiple BSSIDs advertising the same SSID
+* MAC addresses acting as both AP and client
+* MAC addresses observed across multiple channels
+
+These are informational observations and do not generate alerts.
+
+---
+
+## Requirements
+
+* Linux
+* Python 3
+* Scapy
+* Root privileges (sudo)
+* Wireless adapter with monitor mode support
+
+Install dependencies:
+
+```
+sudo apt install python3-scapy iw
+```
+
+Run WASP:
+
+```
+sudo python3 WASP.py
+```
+
+---
+
+## Startup Flow
+
+1. Pre-flight diagnostics
+2. Interface selection
+3. Monitor mode enablement
+4. Mode selection (ALL / BSSID / SSID)
+5. Monitoring begins
+
+---
+
+## Configuration (wasp.conf)
+
+Optional configuration file for tuning detection thresholds and UI behaviour.
+
+If the configuration file is not present, WASP runs with safe default values.
+
+Search locations:
+
+```
+./wasp.conf
+/etc/wasp.conf
+```
+
+Monitoring mode selection is always interactive.
+
+---
+
+## Virtual Machines & Hardware
+
+WASP can run inside virtual machines; however, Wi-Fi monitor mode under virtualization is often unreliable due to hardware passthrough limitations.
+
+Some USB Wi-Fi adapters — especially dual-band chipsets such as **MT7612U** and **RTL8812AU** — may behave unpredictably in monitor mode inside VMs.
+
+For VM testing, **2.4 GHz adapters such as RTL8187L-based devices are recommended.**
+
+When WASP detects that it is running inside a virtual machine, it will display an informational advisory notice at startup.
+
+---
+
+## Project Structure
+
+```
+WASP/
+│
+├── WASP.py        # Main IDS sensor
+├── wasp.conf      # Optional configuration file
+├── README.md      # Project documentation
+└── LICENSE        # MIT license
+```
+
+---
+
+## Legal & Ethical Use
+
+Use only on wireless networks you own or are explicitly authorised to test.
+
 You are solely responsible for lawful and ethical operation.
 
-Disclaimer
+---
 
-This software is provided "as is", without warranty of any kind.  
+## Disclaimer
+
+This software is provided **“as is”**, without warranty of any kind.
+
 The author assumes no responsibility for misuse, damage, or legal consequences resulting from the use of this tool.
 
-License
+---
 
-MIT License. See the LICENSE file for details.
+## License
 
-Author
+MIT License.
 
-Ranga (RangaSec73)
+---
 
-Project Status
+## Author
 
-Version 1.1 — stable.  
-Added virtual machine detection and advisory notice.  
-Improved startup input handling (help and quit available globally).
+**Ranga (RangaSec73)**
+
+---
+
+## Project Status
+
+**Version 1.2 — stable**
+
+Major additions in this release:
+
+* Interactive monitoring console
+* Status panel
+* Top RF device visibility
+* Alert history viewer
+* Alert cooldown system
+* Improved terminal output formatting
