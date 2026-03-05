@@ -4,6 +4,7 @@ from scapy.all import sniff, Dot11, Dot11Elt, RadioTap
 import time, os, sys, signal, threading, subprocess, re
 from collections import defaultdict, deque
 import configparser
+from datetime import datetime
 
 # ================= DEFAULT CONFIG =================
 WINDOW_SECONDS = 5
@@ -18,7 +19,15 @@ SHOW_AWARENESS = True
 USE_COLOUR = True
 # ================================================
 
-# ---------- LOAD CONFIG (silent if missing) ----------
+recent_alerts = deque(maxlen=10)
+
+def print_event(message):
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    line = f"[{timestamp}] {message}"
+    recent_alerts.append(line)
+    print(line)
+
+# ---------- LOAD CONFIG ----------
 
 def load_config():
     global WINDOW_SECONDS, SRC_THRESHOLD, BSSID_THRESHOLD
@@ -54,7 +63,6 @@ if not USE_COLOUR:
     RESET=WHITE=GREEN=YELLOW=RED=CYAN=BOLD=""
 # =========================================
 
-# 802.11 subtypes
 DEAUTH = 0x0c
 DISASSOC = 0x0a
 PROBE = 0x04
@@ -71,7 +79,6 @@ SNIFF_INTERFACE = None
 RUNNING = True
 START_TIME = time.time()
 
-# Alert counters
 src_alerts = 0
 bssid_alerts = 0
 probe_alerts = 0
@@ -79,7 +86,6 @@ auth_alerts = 0
 hidden_ssid_alerts = 0
 channel_alerts = 0
 
-# Detection trackers
 src_tracker = defaultdict(deque)
 bssid_tracker = defaultdict(deque)
 probe_tracker = defaultdict(deque)
@@ -87,7 +93,9 @@ auth_tracker = defaultdict(deque)
 hidden_tracker = defaultdict(deque)
 channel_tracker = defaultdict(deque)
 
-# Awareness trackers
+alert_cooldown = defaultdict(float)
+ALERT_COOLDOWN = 30
+
 ssid_bssid_map = defaultdict(set)
 ssid_awareness_printed = set()
 
@@ -95,195 +103,32 @@ mac_roles = defaultdict(set)
 mac_channels = defaultdict(set)
 mac_role_printed = set()
 mac_channel_printed = set()
-# =========================================
+rf_device_counter = defaultdict(int)
 
+# ---------- HELPER FUNCTIONS ----------
 
-# ---------- VM DETECTION ----------
+def extract_ssid(pkt):
+    elt = pkt.getlayer(Dot11Elt)
+    while elt:
+        if elt.ID == 0 and elt.info:
+            return elt.info.decode(errors="ignore")
+        elt = elt.payload.getlayer(Dot11Elt)
+    return None
 
-def is_virtual_machine():
-    try:
-        with open("/sys/class/dmi/id/product_name", "r") as f:
-            product = f.read().lower()
+def is_hidden_ssid(pkt):
+    elt = pkt.getlayer(Dot11Elt)
+    while elt:
+        if elt.ID == 0:
+            return elt.info == b""
+        elt = elt.payload.getlayer(Dot11Elt)
+    return False
 
-        vm_indicators = ["virtualbox", "vmware", "kvm", "qemu", "hyper-v", "xen"]
-        return any(v in product for v in vm_indicators)
-    except Exception:
-        return False
-
-
-def show_vm_advisory():
-    print(f"""{YELLOW}{BOLD}
-┌─ Environment Notice ──────────────────────────────────────────┐
-│ Virtual machine detected                                     │
-│                                                             │
-│ Some USB Wi-Fi adapters — particularly dual-band chipsets   │
-│ (e.g. MT7612U, RTL8812AU) — may behave unreliably in         │
-│ monitor mode under virtualization.                          │
-│                                                             │
-│ For VM testing, 2.4 GHz-only adapters (e.g. RTL8187L) are   │
-│ strongly recommended.                                       │
-│                                                             │
-│ This is a virtualization limitation, not a WASP issue.     │
-└─────────────────────────────────────────────────────────────┘
-{RESET}""")
-
-
-# ---------- DIAGNOSTICS ----------
-
-def auto_diagnostics():
-    print(f"{BOLD}{CYAN}[*] Running pre-flight diagnostics...{RESET}")
-
-    if os.geteuid() != 0:
-        print(f"{RED}[!] Must run as root (sudo){RESET}")
-        sys.exit(1)
-    print(f"{GREEN}[✓] Running as root{RESET}")
-
-    try:
-        nm = subprocess.run(
-            ["systemctl", "is-active", "NetworkManager"],
-            capture_output=True, text=True
-        )
-        if nm.stdout.strip() == "active":
-            print(f"{YELLOW}[!] NetworkManager is running (may interfere){RESET}")
-    except Exception:
-        pass
-
-    try:
-        iw = subprocess.check_output(["iw", "list"], text=True)
-        if "monitor" not in iw:
-            print(f"{RED}[!] Adapter does not support monitor mode{RESET}")
-            sys.exit(1)
-        print(f"{GREEN}[✓] Monitor mode supported{RESET}")
-    except Exception:
-        pass
-
-    print(f"{GREEN}[*] Diagnostics complete{RESET}")
-    print("-" * 70)
-
-
-# ---------- INTERFACE ----------
-
-def select_interface():
-    out = subprocess.check_output(["iw", "dev"], text=True)
-    interfaces = []
-
-    for line in out.splitlines():
-        m = re.search(r"Interface (\w+)", line)
-        if m:
-            interfaces.append(m.group(1))
-
-    if not interfaces:
-        print(f"{RED}[!] No wireless interfaces found{RESET}")
-        sys.exit(1)
-
-    print("\nAvailable Wi-Fi interfaces:\n")
-    for i, iface in enumerate(interfaces, 1):
-        print(f"[{i}] {iface}")
-
-    while True:
-        c = input("\nSelect interface to use: ").strip()
-        if c.isdigit() and 1 <= int(c) <= len(interfaces):
-            return interfaces[int(c) - 1]
-
-
-def enable_monitor_mode():
-    global SNIFF_INTERFACE
-
-    iw_out = subprocess.check_output(["iw", "dev"], text=True)
-    if "type monitor" not in iw_out:
-        print(f"{YELLOW}[!] {BASE_INTERFACE} not in monitor mode{RESET}")
-        if input("Enable monitor mode? (y/n): ").lower() == "y":
-            subprocess.check_call(["ip", "link", "set", BASE_INTERFACE, "down"])
-            subprocess.check_call(["iw", "dev", BASE_INTERFACE, "set", "type", "monitor"])
-            subprocess.check_call(["ip", "link", "set", BASE_INTERFACE, "up"])
-        else:
-            sys.exit(0)
-
-    SNIFF_INTERFACE = BASE_INTERFACE
-    print(f"{GREEN}[*] Using capture interface: {SNIFF_INTERFACE}{RESET}")
-
-
-# ---------- MODE / HELP ----------
-
-def select_mode():
-    global MODE, TARGET_BSSID, TARGET_SSID
-
-    while True:
-        print("\nSelect operating mode:")
-        print("1) Monitor all networks")
-        print("2) Monitor a specific BSSID")
-        print("3) Monitor a specific SSID")
-        print("h) Help")
-        print("q) Quit")
-        c = input("> ").strip().lower()
-
-        if c == "h":
-            show_help()
-            continue
-
-        if c == "q":
-            clean_exit()
-
-        if c == "1":
-            MODE = "ALL"
-            TARGET_BSSID = TARGET_SSID = None
-            break
-
-        if c == "2":
-            MODE = "BSSID"
-            TARGET_BSSID = input("Enter BSSID: ").lower()
-            break
-
-        if c == "3":
-            MODE = "SSID"
-            TARGET_SSID = input("Enter SSID: ")
-            break
-
-        print(f"{YELLOW}[!] Invalid selection{RESET}")
-
-    print("-" * 70)
-    print(f"{GREEN}[*] Monitoring active:{RESET}")
-    print(f"{WHITE}    Mode: {MODE}{RESET}")
-    print(f"{WHITE}    Passive detection & awareness enabled{RESET}")
-    print(f"{WHITE}    s=status • m=mode • h=help • q=quit{RESET}")
-    print("-" * 70)
-
-
-def show_help():
-    print(f"""
-{BOLD}{CYAN}[HELP] WASP — Wireless Auditing & Security Platform{RESET}
-
- Controls:
-   s → show status
-   m → change monitoring mode
-   h → show this help screen
-   q → quit cleanly
-
- Passive Wi-Fi intrusion detection and awareness tool.
- No packets are injected.
-""")
-
-
-# ---------- STATUS ----------
-
-def show_status():
-    up = int(time.time() - START_TIME)
-    h, m, s = up // 3600, (up % 3600) // 60, up % 60
-
-    def row(label, value):
-        print(f" {label:<27} : {value}")
-
-    print(f"\n{BOLD}{CYAN}[STATUS]{RESET}")
-    row("Mode", MODE)
-    row("Deauth SRC alerts", src_alerts)
-    row("Deauth BSSID alerts", bssid_alerts)
-    row("Probe alerts", probe_alerts)
-    row("Auth flood alerts", auth_alerts)
-    row("Hidden SSID alerts", hidden_ssid_alerts)
-    row("Channel hop alerts", channel_alerts)
-    row("Uptime", f"{h:02}:{m:02}:{s:02}")
-    print("-" * 70)
-
+def extract_channel(pkt):
+    if pkt.haslayer(RadioTap):
+        rt = pkt[RadioTap]
+        if hasattr(rt, "ChannelFrequency"):
+            return rt.ChannelFrequency
+    return None
 
 # ---------- SESSION SUMMARY ----------
 
@@ -305,49 +150,184 @@ def print_session_summary():
     print(f"   {'Channel hop anomalies':<27} : {channel_alerts}")
     print(f"{BOLD}========================================================{RESET}")
 
-
 def clean_exit():
     global RUNNING
-    print(f"\n{CYAN}[*] Exiting WASP cleanly in 4 seconds...{RESET}")
+    print(f"\n{CYAN}[*] Exiting WASP cleanly...{RESET}")
     RUNNING = False
     print_session_summary()
-    time.sleep(4)
+    time.sleep(2)
     sys.exit(0)
-
 
 signal.signal(signal.SIGINT, lambda *_: clean_exit())
 signal.signal(signal.SIGTERM, lambda *_: clean_exit())
 
+# ---------- VM DETECTION ----------
+
+def is_virtual_machine():
+    try:
+        with open("/sys/class/dmi/id/product_name", "r") as f:
+            product = f.read().lower()
+
+        vm_indicators = ["virtualbox","vmware","kvm","qemu","hyper-v","xen"]
+        return any(v in product for v in vm_indicators)
+    except:
+        return False
+
+def show_vm_advisory():
+    print(f"""{YELLOW}{BOLD}
+┌─ Environment Notice ──────────────────────────────────────────┐
+│ Virtual machine detected                                     │
+│ Some USB Wi-Fi adapters may behave unreliably in monitor     │
+│ mode when used inside virtualization environments.           │
+└─────────────────────────────────────────────────────────────┘
+{RESET}""")
+
+# ---------- DIAGNOSTICS ----------
+
+def auto_diagnostics():
+    print(f"{BOLD}{CYAN}[*] Running pre-flight diagnostics...{RESET}")
+
+    if os.geteuid() != 0:
+        print(f"{RED}[!] Must run as root (sudo){RESET}")
+        sys.exit(1)
+
+    print(f"{GREEN}[✓] Running as root{RESET}")
+
+    try:
+        iw = subprocess.check_output(["iw","list"], text=True)
+        if "monitor" not in iw:
+            print(f"{RED}[!] Adapter does not support monitor mode{RESET}")
+            sys.exit(1)
+        print(f"{GREEN}[✓] Monitor mode supported{RESET}")
+    except:
+        pass
+
+    print(f"{GREEN}[*] Diagnostics complete{RESET}")
+    print("-"*70)
+
+# ---------- INTERFACE ----------
+
+def select_interface():
+    out = subprocess.check_output(["iw","dev"], text=True)
+    interfaces=[]
+
+    for line in out.splitlines():
+        m=re.search(r"Interface (\w+)", line)
+        if m:
+            interfaces.append(m.group(1))
+
+    print("\nAvailable Wi-Fi interfaces:\n")
+
+    for i,iface in enumerate(interfaces,1):
+        print(f"[{i}] {iface}")
+
+    while True:
+        c=input("\nSelect interface to use: ").strip()
+        if c.isdigit() and 1<=int(c)<=len(interfaces):
+            return interfaces[int(c)-1]
+
+def enable_monitor_mode():
+    global SNIFF_INTERFACE
+    SNIFF_INTERFACE = BASE_INTERFACE
+    print(f"{GREEN}[*] Using capture interface: {SNIFF_INTERFACE}{RESET}")
+
+# ---------- MODE ----------
+
+def select_mode():
+    global MODE,TARGET_BSSID,TARGET_SSID
+
+    while True:
+        print("\nSelect operating mode:")
+        print("1) Monitor all networks")
+        print("2) Monitor a specific BSSID")
+        print("3) Monitor a specific SSID")
+        print("h) Help")
+        print("q) Quit")
+
+        c=input("> ").strip().lower()
+
+        if c=="q":
+            clean_exit()
+
+        if c=="1":
+            MODE="ALL"
+            break
+
+        if c=="2":
+            MODE="BSSID"
+            TARGET_BSSID=input("Enter BSSID: ").lower()
+            break
+
+        if c=="3":
+            MODE="SSID"
+            TARGET_SSID=input("Enter SSID: ")
+            break
+
+# ---------- STATUS ----------
+
+def show_status():
+
+    up = int(time.time() - START_TIME)
+    h, m, s = up // 3600, (up % 3600) // 60, up % 60
+
+    print(f"\n{BOLD}{CYAN}====================== STATUS ======================{RESET}")
+
+    print(f"   {'Interface':<27} : {BASE_INTERFACE}")
+    print(f"   {'Mode':<27} : {MODE}")
+    print(f"   {'Runtime':<27} : {h:02}:{m:02}:{s:02}")
+
+    print("\n ------------------ Current Alerts ------------------")
+
+    print(f"   {'Deauth SRC floods':<27} : {src_alerts}")
+    print(f"   {'Deauth BSSID floods':<27} : {bssid_alerts}")
+    print(f"   {'Probe floods':<27} : {probe_alerts}")
+    print(f"   {'Auth floods':<27} : {auth_alerts}")
+    print(f"   {'Hidden SSID anomalies':<27} : {hidden_ssid_alerts}")
+    print(f"   {'Channel hop anomalies':<27} : {channel_alerts}")
+
+    print(f"{BOLD}====================================================={RESET}")
+
+# ---------- TOP RF DEVICES ----------
+
+def show_top_devices():
+
+    print(f"\n{BOLD}{CYAN}=================== TOP RF DEVICES ==================={RESET}")
+
+    if not rf_device_counter:
+        print("   No RF devices observed yet.")
+        print(f"{BOLD}======================================================{RESET}")
+        return
+
+    top = sorted(rf_device_counter.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    print("\n   {:<20} {}".format("MAC Address", "Frames Seen"))
+    print("   -----------------------------------------------")
+
+    for mac, count in top:
+        print(f"   {mac:<20} {count}")
+
+    print(f"\n{BOLD}======================================================{RESET}")
+
+# ---------- LAST ALERTS ----------
+
+def show_last_alerts():
+
+    print(f"\n{BOLD}{CYAN}==================== LAST ALERTS ===================={RESET}")
+
+    if not recent_alerts:
+        print("   No alerts recorded yet.")
+        print(f"{BOLD}====================================================={RESET}")
+        return
+
+    for alert in recent_alerts:
+        print(f"   {alert}")
+
+    print(f"{BOLD}====================================================={RESET}")
 
 # ---------- PACKET HANDLER ----------
 
-def extract_ssid(pkt):
-    elt = pkt.getlayer(Dot11Elt)
-    while elt:
-        if elt.ID == 0 and elt.info:
-            return elt.info.decode(errors="ignore")
-        elt = elt.payload.getlayer(Dot11Elt)
-    return None
-
-
-def is_hidden_ssid(pkt):
-    elt = pkt.getlayer(Dot11Elt)
-    while elt:
-        if elt.ID == 0:
-            return elt.info == b""
-        elt = elt.payload.getlayer(Dot11Elt)
-    return False
-
-
-def extract_channel(pkt):
-    if pkt.haslayer(RadioTap):
-        rt = pkt[RadioTap]
-        if hasattr(rt, "ChannelFrequency"):
-            return rt.ChannelFrequency
-    return None
-
-
 def handle_packet(pkt):
+
     global src_alerts, bssid_alerts, probe_alerts
     global auth_alerts, hidden_ssid_alerts, channel_alerts
 
@@ -356,95 +336,105 @@ def handle_packet(pkt):
 
     d = pkt[Dot11]
     now = time.time()
+
     src = d.addr2
     bssid = d.addr3
 
-    if SHOW_AWARENESS and d.subtype == BEACON and bssid:
-        ssid = extract_ssid(pkt)
-        if ssid:
-            ssid_bssid_map[ssid].add(bssid)
-            mac_roles[bssid].add("AP")
-            if len(ssid_bssid_map[ssid]) >= 2 and ssid not in ssid_awareness_printed:
-                ssid_awareness_printed.add(ssid)
-                print(f"{YELLOW}{BOLD}[?] Multiple BSSIDs advertising SSID \"{ssid}\"{RESET}")
-
-    if SHOW_AWARENESS and src and d.subtype in (PROBE, AUTH):
-        mac_roles[src].add("CLIENT")
-        if len(mac_roles[src]) >= 2 and src not in mac_role_printed:
-            mac_role_printed.add(src)
-            print(f"{YELLOW}{BOLD}[?] MAC acting as AP and CLIENT: {src}{RESET}")
-
-    ch = extract_channel(pkt)
-    if SHOW_AWARENESS and src and ch:
-        mac_channels[src].add(ch)
-        if len(mac_channels[src]) >= 2 and src not in mac_channel_printed:
-            mac_channel_printed.add(src)
-            print(f"{YELLOW}{BOLD}[?] MAC observed on multiple channels: {src}{RESET}")
-
-    if MODE == "BSSID" and bssid and bssid.lower() != TARGET_BSSID:
-        return
-    if MODE == "SSID":
-        ssid = extract_ssid(pkt)
-        if ssid != TARGET_SSID:
-            return
+    if src:
+        rf_device_counter[src] += 1
 
     if d.subtype in (DEAUTH, DISASSOC) and src and bssid:
+
         src_tracker[src].append(now)
         bssid_tracker[bssid].append(now)
+
         src_tracker[src] = deque(t for t in src_tracker[src] if now - t <= WINDOW_SECONDS)
         bssid_tracker[bssid] = deque(t for t in bssid_tracker[bssid] if now - t <= WINDOW_SECONDS)
-        if len(src_tracker[src]) >= SRC_THRESHOLD:
-            src_alerts += 1
-        if len(bssid_tracker[bssid]) >= BSSID_THRESHOLD:
-            bssid_alerts += 1
+
+        if len(src_tracker[src]) == SRC_THRESHOLD:
+            if now - alert_cooldown[src] > ALERT_COOLDOWN:
+                src_alerts += 1
+                print_event(f"{RED}[DEAUTH SRC FLOOD]{RESET} {src}")
+                alert_cooldown[src] = now
+
+        if len(bssid_tracker[bssid]) == BSSID_THRESHOLD:
+            if now - alert_cooldown[bssid] > ALERT_COOLDOWN:
+                bssid_alerts += 1
+                print_event(f"{RED}[DEAUTH BSSID FLOOD]{RESET} {bssid}")
+                alert_cooldown[bssid] = now
 
     elif d.subtype == PROBE and src:
+
         probe_tracker[src].append(now)
         probe_tracker[src] = deque(t for t in probe_tracker[src] if now - t <= WINDOW_SECONDS)
-        if len(probe_tracker[src]) >= PROBE_THRESHOLD:
-            probe_alerts += 1
+
+        if len(probe_tracker[src]) == PROBE_THRESHOLD:
+            if now - alert_cooldown[src] > ALERT_COOLDOWN:
+                probe_alerts += 1
+                print_event(f"{YELLOW}[PROBE FLOOD]{RESET} {src}")
+                alert_cooldown[src] = now
 
     elif d.subtype == AUTH and src:
+
         auth_tracker[src].append(now)
         auth_tracker[src] = deque(t for t in auth_tracker[src] if now - t <= WINDOW_SECONDS)
-        if len(auth_tracker[src]) >= AUTH_THRESHOLD:
-            auth_alerts += 1
+
+        if len(auth_tracker[src]) == AUTH_THRESHOLD:
+            if now - alert_cooldown[src] > ALERT_COOLDOWN:
+                auth_alerts += 1
+                print_event(f"{RED}[AUTH FLOOD]{RESET} {src}")
+                alert_cooldown[src] = now
 
     elif d.subtype == BEACON and bssid and is_hidden_ssid(pkt):
+
         hidden_tracker[bssid].append(now)
         hidden_tracker[bssid] = deque(t for t in hidden_tracker[bssid] if now - t <= WINDOW_SECONDS)
-        if len(hidden_tracker[bssid]) >= HIDDEN_BEACON_THRESHOLD:
-            hidden_ssid_alerts += 1
+
+        if len(hidden_tracker[bssid]) == HIDDEN_BEACON_THRESHOLD:
+            if now - alert_cooldown[bssid] > ALERT_COOLDOWN:
+                hidden_ssid_alerts += 1
+                print_event(f"{YELLOW}[HIDDEN SSID ANOMALY]{RESET} {bssid}")
+                alert_cooldown[bssid] = now
+
+    ch = extract_channel(pkt)
 
     if src and ch:
+
         channel_tracker[src].append((now, ch))
         channel_tracker[src] = deque((t, c) for t, c in channel_tracker[src] if now - t <= WINDOW_SECONDS)
-        if len({c for _, c in channel_tracker[src]}) >= CHANNEL_THRESHOLD:
-            channel_alerts += 1
 
+        unique_channels = {c for _, c in channel_tracker[src]}
+
+        if len(unique_channels) >= CHANNEL_THRESHOLD:
+            if now - alert_cooldown[src] > ALERT_COOLDOWN:
+                channel_alerts += 1
+                print_event(f"{YELLOW}[CHANNEL HOP ANOMALY]{RESET} {src}")
+                alert_cooldown[src] = now
 
 # ---------- INPUT THREAD ----------
 
 def input_listener():
     while RUNNING:
         try:
-            c = input().strip().lower()
+            c=input().strip().lower()
         except EOFError:
             continue
 
-        if c == "s":
+        if c=="s":
             show_status()
-        elif c == "m":
+        elif c=="t":
+            show_top_devices()
+        elif c=="l":
+            show_last_alerts()
+        elif c=="m":
             select_mode()
-        elif c == "h":
-            show_help()
-        elif c == "q":
+        elif c=="q":
             clean_exit()
-
 
 # ---------- STARTUP ----------
 
 os.system("clear")
+
 print(f"""{BOLD}{CYAN}
 ██╗    ██╗ █████╗ ███████╗██████╗
 ██║    ██║██╔══██╗██╔════╝██╔══██╗
@@ -454,19 +444,30 @@ print(f"""{BOLD}{CYAN}
  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚═╝
 {RESET}""")
 
-print(f"{BOLD}{CYAN}WASP v1.1 — Wireless Auditing & Security Platform{RESET}")
+print(f"{BOLD}{CYAN}WASP v1.2 — Wireless Auditing & Security Platform{RESET}")
 print(f"{CYAN}Passive Wi-Fi Intrusion Detection (WIDS){RESET}")
-print("-" * 70)
+print("-"*70)
 
 if is_virtual_machine():
     show_vm_advisory()
 
 auto_diagnostics()
+
+# ---------- MONITORING PANEL ----------
+
 BASE_INTERFACE = select_interface()
 enable_monitor_mode()
+
 select_mode()
 
-threading.Thread(target=input_listener, daemon=True).start()
+print("-" * 70)
+print(f"{CYAN}[*] Monitoring active:{RESET}")
+print(f"{WHITE}    Mode: {MODE}{RESET}")
+print(f"{WHITE}    Passive detection & awareness enabled{RESET}")
+print(f"{WHITE}    s=status • t=top devices • l=last alerts • m=mode • q=quit{RESET}")
+print("-" * 70)
+
+threading.Thread(target=input_listener,daemon=True).start()
 
 sniff(
     iface=SNIFF_INTERFACE,
