@@ -2,7 +2,7 @@
 
 **Wireless Auditing & Security Platform**
 
-Passive Wi-Fi Intrusion Detection System (WIDS)
+Passive Wireless Intrusion Detection System (WIDS)
 
 ![Python](https://img.shields.io/badge/python-3.x-blue)
 ![Platform](https://img.shields.io/badge/platform-linux-lightgrey)
@@ -12,7 +12,7 @@ Passive Wi-Fi Intrusion Detection System (WIDS)
 
 ## Overview
 
-WASP is a passive Wi-Fi intrusion detection and awareness tool designed to monitor IEEE 802.11 management traffic and identify suspicious or potentially malicious behaviour on wireless networks.
+WASP is a passive wireless intrusion detection and awareness tool designed to monitor IEEE 802.11 management traffic and identify suspicious or potentially malicious behaviour in the local RF environment.
 
 WASP operates entirely in **read-only passive mode**. It does not inject traffic, does not interfere with wireless networks, and does not attempt mitigation.
 
@@ -46,7 +46,7 @@ wifi-security • wireless-security • wireless-ids • wids • 80211 • cybe
 
 Enterprise wireless intrusion detection systems are often expensive and inaccessible to individuals learning wireless security.
 
-WASP was created to explore lightweight open-source approaches to wireless intrusion detection that can run on common Linux systems using inexpensive Wi-Fi adapters.
+WASP was created to explore lightweight open-source approaches to wireless intrusion detection that can run on common Linux systems using inexpensive wireless adapters.
 
 The project focuses on visibility, awareness, and experimentation with wireless anomaly detection.
 
@@ -165,7 +165,7 @@ Monitoring mode selection is always interactive.
 
 ## Virtual Machines & Hardware
 
-WASP can run inside virtual machines; however, Wi-Fi monitor mode under virtualization is often unreliable due to hardware passthrough limitations.
+WASP can run inside virtual machines; however, 802.11 monitor mode under virtualization is often unreliable due to hardware passthrough limitations.
 
 Some USB Wi-Fi adapters — especially dual-band chipsets such as **MT7612U** and **RTL8812AU** — may behave unpredictably in monitor mode inside VMs.
 
@@ -233,7 +233,7 @@ Major additions in this release:
 
 ## Contribute / Break WASP
 
-WASP is an experimental wireless intrusion detection platform and community testing is encouraged.
+WASP is an experimental wireless intrusion detection and wireless awareness platform.
 
 Security researchers, penetration testers, and wireless enthusiasts are invited to:
 
