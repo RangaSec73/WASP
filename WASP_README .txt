@@ -12,7 +12,7 @@ Passive Wi-Fi Intrusion Detection System (WIDS)
 
 ## Overview
 
-WASP is a passive Wi-Fi intrusion detection and awareness tool designed to monitor IEEE 802.11 management traffic and identify suspicious or abusive behaviour on wireless networks.
+WASP is a passive Wi-Fi intrusion detection and awareness tool designed to monitor IEEE 802.11 management traffic and identify suspicious or potentially malicious behaviour on wireless networks.
 
 WASP operates entirely in **read-only passive mode**. It does not inject traffic, does not interfere with wireless networks, and does not attempt mitigation.
 
@@ -22,7 +22,7 @@ The tool is designed for defensive monitoring, learning, and authorised wireless
 
 ## Topics
 
-wifi-security • wireless-ids • wids • network-security • cybersecurity • python-security-tool
+wifi-security • wireless-security • wireless-ids • wids • 80211 • cybersecurity • network-security • scapy • kali-linux • python-security • intrusion-detection
 
 ## What WASP Is (and Is Not)
 
@@ -39,6 +39,16 @@ wifi-security • wireless-ids • wids • network-security • cybersecurity �
 * A packet injection framework
 * A mitigation or blocking system
 * A replacement for enterprise IDS/IPS platforms
+
+---
+
+## Why WASP Exists
+
+Enterprise wireless intrusion detection systems are often expensive and inaccessible to individuals learning wireless security.
+
+WASP was created to explore lightweight open-source approaches to wireless intrusion detection that can run on common Linux systems using inexpensive Wi-Fi adapters.
+
+The project focuses on visibility, awareness, and experimentation with wireless anomaly detection.
 
 ---
 
@@ -218,4 +228,24 @@ Major additions in this release:
 * Alert history viewer
 * Alert cooldown system
 * Improved terminal output formatting
+
+---
+
+## Contribute / Break WASP
+
+WASP is an experimental wireless intrusion detection platform and community testing is encouraged.
+
+Security researchers, penetration testers, and wireless enthusiasts are invited to:
+
+• Test WASP against real wireless attack scenarios  
+• Attempt to bypass detection logic  
+• Report detection failures or false positives  
+• Suggest new anomaly detection patterns  
+• Submit improvements or optimisations
+
+If you discover a way to **evade WASP detection**, please open an Issue and describe the scenario.
+
+Real-world attack testing helps improve detection logic and makes the tool more useful for the security community.
+
+Contributions are welcome.
 
